@@ -221,8 +221,28 @@ section[data-testid="stSidebar"] {
 }
 .sidebar-title { color: #e0edf8; font-size: 1rem; font-weight: 600; margin: 1rem 0 0.5rem; }
 
-/* Hide branding */
-#MainMenu, footer, header { visibility: hidden; }
+/* Hide branding — keep header visible, it contains the sidebar toggle */
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+
+/* Force full-width layout — Streamlit's default block-container max-width
+   overrides layout="wide" in some versions, which was squeezing the hero
+   (and everything else) down to ~400px */
+.block-container {
+    max-width: 100% !important;
+    padding-top: 2rem !important;
+    padding-left: 3rem !important;
+    padding-right: 3rem !important;
+}
+
+/* Keep the header's sidebar-toggle visible but recolor it to match the dark theme */
+header[data-testid="stHeader"] {
+    background: #080d14 !important;
+}
+header[data-testid="stHeader"] * {
+    color: #cce0f5 !important;
+    fill: #cce0f5 !important;
+}
 
 /* Textarea */
 .stTextArea textarea {
