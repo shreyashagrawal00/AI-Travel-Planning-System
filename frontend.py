@@ -7,7 +7,8 @@ from main import app
 st.set_page_config(
     page_title="AI Travel Booking System",
     page_icon="✈️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 st.markdown("""
