@@ -260,15 +260,33 @@ graph.add_edge("final_agent", END)
 # -------------------------------------------------------
 # PostgreSQL Checkpointer
 # -------------------------------------------------------
+# Uses a connection pool instead of a single raw connection.
+# Managed/serverless Postgres (e.g. Neon) silently closes idle
+# connections after a period of inactivity. A single long-lived
+# connection then fails on the next query with
+# "the connection is closed" (psycopg.OperationalError). A pool
+# detects dead connections and transparently reconnects instead.
+
+from psycopg_pool import ConnectionPool
+
+_connection_kwargs = {
+    "autocommit": True,
+    "prepare_threshold": 0,
+}
 
 try:
 
-    conn = psycopg.connect(
-        DATABASE_URL,
-        autocommit=True,
+    pool = ConnectionPool(
+        conninfo=DATABASE_URL,
+        min_size=1,
+        max_size=10,
+        kwargs=_connection_kwargs,
+        # Verify a connection is alive before handing it out; if the
+        # server has silently dropped it, open a fresh one instead.
+        check=ConnectionPool.check_connection,
     )
 
-    checkpointer = PostgresSaver(conn)
+    checkpointer = PostgresSaver(pool)
 
     try:
         checkpointer.setup()

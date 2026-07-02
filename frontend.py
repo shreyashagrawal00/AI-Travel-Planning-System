@@ -464,6 +464,12 @@ if generate:
                     "This isn't a bug in the app — wait a minute and try again, "
                     "or switch to an API key with a higher limit."
                 )
+            elif "OperationalError" in err_name or "the connection is closed" in str(e):
+                st.error(
+                    "🔌 **Lost the database connection.** The Postgres server "
+                    "closed an idle connection. This should now recover on "
+                    "its own — just try sending your request again."
+                )
             else:
                 st.error(f"⚠️ Something went wrong while generating your plan: **{err_name}**")
                 with st.expander("Technical details"):
