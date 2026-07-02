@@ -28,6 +28,16 @@ from langchain_core.messages import (
 )
 
 from langchain_groq import ChatGroq
+from groq import RateLimitError
+
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+    before_sleep_log,
+)
+import logging
 
 from tools.flight_tool import search_flights
 from tools.tavily_tool import tavily_search
@@ -43,6 +53,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL not found in .env")
 
+logger = logging.getLogger("travel_planner")
+
 # -------------------------------------------------------
 # LLM
 # -------------------------------------------------------
@@ -50,6 +62,48 @@ if not DATABASE_URL:
 llm = ChatGroq(
     model="llama-3.3-70b-versatile",
 )
+
+
+class LLMUnavailableError(Exception):
+    """Raised when the LLM still fails after all retries (e.g. rate limit
+    quota fully exhausted, not just a transient burst)."""
+
+
+@retry(
+    retry=retry_if_exception_type(RateLimitError),
+    wait=wait_exponential(multiplier=2, min=2, max=30),
+    stop=stop_after_attempt(5),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
+def _invoke_with_retry(messages):
+    """Call the Groq LLM, retrying with exponential backoff on 429s.
+
+    Groq's free tier enforces RPM/TPM/RPD limits. Most 429s are transient
+    (a short burst), so a few retries with backoff usually clears them.
+    If Groq returns a `retry_after` hint in the error body, honor it.
+    """
+    return llm.invoke(messages)
+
+
+def safe_llm_invoke(messages, fallback_text: str):
+    """Wraps _invoke_with_retry so a persistent rate limit doesn't crash
+    the whole graph run — the pipeline still completes with a clear note
+    about what happened, instead of an unhandled 500."""
+    try:
+        return _invoke_with_retry(messages)
+    except RateLimitError as e:
+        logger.error(f"Groq rate limit exhausted after retries: {e}")
+        return AIMessage(
+            content=(
+                f"{fallback_text}\n\n"
+                "_⚠️ This step couldn't complete because the Groq API rate "
+                "limit was hit and didn't clear after several retries. "
+                "This is a quota limit on the API key (free tier), not an "
+                "app bug — wait a minute and try again, or use an API key "
+                "with a higher limit._"
+            )
+        )
 
 # -------------------------------------------------------
 # State
@@ -131,13 +185,14 @@ Hotel Information:
 Return a well-structured itinerary.
 """
 
-    response = llm.invoke(
+    response = safe_llm_invoke(
         [
             SystemMessage(
                 content="You are an expert travel planner."
             ),
             HumanMessage(content=prompt),
-        ]
+        ],
+        fallback_text="Itinerary could not be generated.",
     )
 
     return {
@@ -171,10 +226,11 @@ Itinerary
 Produce a beautiful final answer in Markdown.
 """
 
-    response = llm.invoke(
+    response = safe_llm_invoke(
         [
             HumanMessage(content=prompt)
-        ]
+        ],
+        fallback_text="Final report could not be generated.",
     )
 
     return {
